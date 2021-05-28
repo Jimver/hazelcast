@@ -105,6 +105,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -905,7 +906,7 @@ abstract class MapProxySupport<K, V>
     }
 
     @SuppressWarnings("checkstyle:magicnumber")
-    private int getPutAllInitialSize(boolean useBatching, int mapSize, int partitionCount) {
+    public int getPutAllInitialSize(boolean useBatching, int mapSize, int partitionCount) {
         if (mapSize == 1) {
             return 1;
         }
@@ -1020,8 +1021,45 @@ abstract class MapProxySupport<K, V>
         }
     }
 
+    /**
+     * Put entries to IMap with MapEntries instead of normal Map for better performance.
+     * @param entriesPerPartition Array with entries per partition, indexed by partition ID
+     * @param future If null, execute in sync, mode otherwise this future will complete when put is complete
+     */
+    protected void setEntriesInternal(MapEntries[] entriesPerPartition, @Nullable InternalCompletableFuture<Void> future) {
+        try {
+            Map<Address, List<Integer>> memberPartitionsMap = partitionService.getMemberPartitionsMap();
+            // invoke operations for entriesPerPartition
+            AtomicInteger counter = new AtomicInteger(memberPartitionsMap.size());
+            InternalCompletableFuture<Void> resultFuture =
+                    future != null ? future : new InternalCompletableFuture<>();
+            BiConsumer<Void, Throwable> callback = (response, t) -> {
+                if (t != null) {
+                    resultFuture.completeExceptionally(t);
+                }
+                if (counter.decrementAndGet() == 0) {
+//                    finalizePutAll(map);
+                    if (!resultFuture.isDone()) {
+                        resultFuture.complete(null);
+                    }
+                }
+            };
+            for (Entry<Address, List<Integer>> entry : memberPartitionsMap.entrySet()) {
+                invokePutAllOperation(entry.getKey(), entry.getValue(), entriesPerPartition, false)
+                        .whenCompleteAsync(callback);
+            }
+            // if executing in sync mode, block for the responses
+            if (future == null) {
+                resultFuture.get();
+            }
+        }
+        catch (Throwable e) {
+            throw rethrow(e);
+        }
+    }
+
     @Nonnull
-    private InternalCompletableFuture<Void> invokePutAllOperation(
+    public InternalCompletableFuture<Void> invokePutAllOperation(
             Address address,
             List<Integer> memberPartitions,
             MapEntries[] entriesPerPartition,

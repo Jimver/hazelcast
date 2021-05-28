@@ -37,6 +37,7 @@ import com.hazelcast.map.impl.ComputeEntryProcessor;
 import com.hazelcast.map.impl.ComputeIfAbsentEntryProcessor;
 import com.hazelcast.map.impl.ComputeIfPresentEntryProcessor;
 import com.hazelcast.map.impl.KeyValueConsumingEntryProcessor;
+import com.hazelcast.map.impl.MapEntries;
 import com.hazelcast.map.impl.MapEntryReplacingEntryProcessor;
 import com.hazelcast.map.impl.MapService;
 import com.hazelcast.map.impl.MergeEntryProcessor;
@@ -482,6 +483,18 @@ public class MapProxyImpl<K, V> extends MapProxySupport<K, V> implements EventJo
         checkNotNull(map, "Null argument map is not allowed");
         InternalCompletableFuture<Void> future = new InternalCompletableFuture<>();
         putAllInternal(map, future, false);
+        return future;
+    }
+
+    public void setEntries(@Nonnull MapEntries[] mapEntries) {
+        checkNotNull(mapEntries, "Null argument MapEntries array not allowed");
+        setEntriesInternal(mapEntries, null);
+    }
+
+    public CompletionStage<Void> setEntriesAsync(@Nonnull MapEntries[] mapEntries) {
+        checkNotNull(mapEntries, "Null argument MapEntries array not allowed");
+        InternalCompletableFuture<java.lang.Void> future = new InternalCompletableFuture<>();
+        setEntriesInternal(mapEntries, future);
         return future;
     }
 
