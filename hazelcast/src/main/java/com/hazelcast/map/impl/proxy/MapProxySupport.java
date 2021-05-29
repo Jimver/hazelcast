@@ -1023,8 +1023,9 @@ abstract class MapProxySupport<K, V>
 
     /**
      * Put entries to IMap with MapEntries instead of normal Map for better performance.
+     *
      * @param entriesPerPartition Array with entries per partition, indexed by partition ID
-     * @param future If null, execute in sync, mode otherwise this future will complete when put is complete
+     * @param future              If null, execute in sync, mode otherwise this future will complete when put is complete
      */
     protected void setEntriesInternal(MapEntries[] entriesPerPartition, @Nullable InternalCompletableFuture<Void> future) {
         try {
@@ -1052,10 +1053,59 @@ abstract class MapProxySupport<K, V>
             if (future == null) {
                 resultFuture.get();
             }
-        }
-        catch (Throwable e) {
+        } catch (Throwable e) {
             throw rethrow(e);
         }
+    }
+
+    /**
+     * Invoke set Entries operation on local node only.
+     * @param memberPartitions The partitions IDs
+     * @param entriesPerPartition The MapEntries (same index in memberPartitions is the partitionId)
+     * @return Future which completes when all MapEntries have been processed
+     */
+    protected InternalCompletableFuture<Void> invokeLocalSetEntriesOperation(
+            int[] memberPartitions,
+            MapEntries[] entriesPerPartition
+    ) {
+        for (Integer partitionId : memberPartitions) {
+            if (entriesPerPartition[partitionId] == null) {
+                throw new IllegalArgumentException(
+                        String.format("MapEntries was null for partitionID %d", partitionId));
+            }
+        }
+        int size = memberPartitions.length;
+        MapEntries[] entries = new MapEntries[size];
+        long totalSize = 0;
+        int index = 0;
+        for (int partitionId : memberPartitions) {
+            int batchSize = entriesPerPartition[partitionId].size();
+            assert (putAllBatchSize == 0 || batchSize <= putAllBatchSize);
+            entries[index++] = entriesPerPartition[partitionId];
+            totalSize += batchSize;
+            entriesPerPartition[partitionId] = null;
+        }
+        if (totalSize == 0) {
+            return newCompletedFuture(null);
+        }
+
+        OperationFactory factory = operationProvider
+                .createPutAllOperationFactory(name, memberPartitions, entries, false);
+        long startTimeNanos = Timer.nanos();
+        CompletableFuture<Map<Integer, Object>> future = operationService
+                .invokeOnPartitionsAsync(SERVICE_NAME, factory, singletonMap(thisAddress, asIntegerList(memberPartitions)));
+        InternalCompletableFuture<Void> resultFuture = new InternalCompletableFuture<>();
+        long finalTotalSize = totalSize;
+        future.whenCompleteAsync((response, t) -> {
+            putAllVisitSerializedKeys(entries);
+            if (t == null) {
+                localMapStats.incrementPutLatencyNanos(finalTotalSize, Timer.nanosElapsed(startTimeNanos));
+                resultFuture.complete(null);
+            } else {
+                resultFuture.completeExceptionally(t);
+            }
+        }, CALLER_RUNS);
+        return resultFuture;
     }
 
     @Nonnull

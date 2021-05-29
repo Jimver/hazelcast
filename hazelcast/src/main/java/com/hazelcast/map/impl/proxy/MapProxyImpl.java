@@ -498,6 +498,36 @@ public class MapProxyImpl<K, V> extends MapProxySupport<K, V> implements EventJo
         return future;
     }
 
+    /**
+     * Set local entries on the IMap. Blocks until it is done.
+     * @param partitionIds Partitions IDs of the mapEntries
+     * @param mapEntries Entries corresponding to the partitionIds
+     */
+    public void setLocalEntries(@Nonnull int[] partitionIds, @Nonnull MapEntries[] mapEntries) {
+        try {
+            ((InternalCompletableFuture<Void>) setLocalEntriesAsync(partitionIds, mapEntries)).get();
+        } catch (Throwable e) {
+            throw rethrow(e);
+        }
+    }
+
+    /**
+     * Set local entries on the IMap.
+     * @param partitionIds Partitions IDs of the mapEntries
+     * @param mapEntries Entries corresponding to the partitionIds
+     * @return Future which completes when all mapEntries are processed
+     */
+    public CompletionStage<Void> setLocalEntriesAsync(@Nonnull int[] partitionIds, @Nonnull MapEntries[] mapEntries) {
+        checkNotNull(partitionIds, "Partition IDs must not be null");
+        checkNotNull(mapEntries, "MapEntries must not be null");
+        if (partitionIds.length != mapEntries.length) {
+            throw new IllegalArgumentException(String.format(
+                    "partitionIds (%d) is not the same length as map entries (%d)",
+                    partitionIds.length, mapEntries.length));
+        }
+        return invokeLocalSetEntriesOperation(partitionIds, mapEntries);
+    }
+
     @Override
     public boolean tryLock(@Nonnull K key) {
         checkNotNull(key, NULL_KEY_IS_NOT_ALLOWED);
