@@ -1068,22 +1068,22 @@ abstract class MapProxySupport<K, V>
             int[] memberPartitions,
             MapEntries[] entriesPerPartition
     ) {
-        for (Integer partitionId : memberPartitions) {
-            if (entriesPerPartition[partitionId] == null) {
+        int size = memberPartitions.length;
+        for (int i = 0; i < size; i++) {
+            if (entriesPerPartition[i] == null) {
                 throw new IllegalArgumentException(
-                        String.format("MapEntries was null for partitionID %d", partitionId));
+                        String.format("MapEntries was null for partitionID %d", memberPartitions[i]));
             }
         }
-        int size = memberPartitions.length;
         MapEntries[] entries = new MapEntries[size];
         long totalSize = 0;
         int index = 0;
-        for (int partitionId : memberPartitions) {
-            int batchSize = entriesPerPartition[partitionId].size();
+        for (int i = 0; i < size; i++) {
+            int batchSize = entriesPerPartition[i].size();
             assert (putAllBatchSize == 0 || batchSize <= putAllBatchSize);
-            entries[index++] = entriesPerPartition[partitionId];
+            entries[index++] = entriesPerPartition[i];
             totalSize += batchSize;
-            entriesPerPartition[partitionId] = null;
+            entriesPerPartition[i] = null;
         }
         if (totalSize == 0) {
             return newCompletedFuture(null);
